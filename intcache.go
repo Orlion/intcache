@@ -4,9 +4,11 @@ import (
 	"sync/atomic"
 )
 
+const soltNum = 8
+
 type IntCache struct {
 	b          uint8
-	buckets    [][8]uint64
+	buckets    [][soltNum]uint64
 	lruBuckets []uint32
 }
 
@@ -14,23 +16,23 @@ func New(b uint8) *IntCache {
 	cap := 1 << b
 	return &IntCache{
 		b:          b,
-		buckets:    make([][8]uint64, cap),
+		buckets:    make([][soltNum]uint64, cap),
 		lruBuckets: make([]uint32, cap),
 	}
 }
 
 func (c *IntCache) Get(key uint32) (value uint32, exists bool) {
 	bucketi := key & (1<<c.b - 1)
-	for i := 0; i < 8; i++ {
+	for i := 0; i < soltNum; i++ {
 		e := atomic.LoadUint64(&c.buckets[bucketi][i])
+		if e == 0 {
+			break
+		}
+
 		if uint32(e>>32) == key {
 			value = uint32(e)
 			exists = true
 			c.updLru(bucketi, i)
-			break
-		}
-
-		if e == 0 {
 			break
 		}
 	}
@@ -39,8 +41,11 @@ func (c *IntCache) Get(key uint32) (value uint32, exists bool) {
 }
 
 func (c *IntCache) Set(key uint32, value uint32) {
+	if key == 0 && value == 0 {
+		panic("key and value can't be 0")
+	}
 	bucketi := key & (1<<c.b - 1)
-	for i := 0; i < 8; i++ {
+	for i := 0; i < soltNum; i++ {
 		e := atomic.LoadUint64(&c.buckets[bucketi][i])
 		if e == 0 {
 			atomic.StoreUint64(&c.buckets[bucketi][i], uint64(key)<<32|uint64(value))
@@ -63,11 +68,11 @@ func (c *IntCache) Set(key uint32, value uint32) {
 		mini   int
 	)
 
-	for i := 0; i < 8; i++ {
+	for i := 0; i < soltNum; i++ {
 		lru := lrus | 0b1111<<uint32(i)
 		if lru < minLru {
 			minLru = lru
-			mini = 0
+			mini = i
 		}
 	}
 
@@ -79,7 +84,7 @@ func (c *IntCache) updLru(bucketi uint32, ei int) {
 	lrus := atomic.LoadUint32(&c.lruBuckets[bucketi])
 	ebiti := ei << 2
 	oldLru := lrus & (0b1111 << ebiti) >> ebiti
-	for i := 0; i < 8; i++ {
+	for i := 0; i < soltNum; i++ {
 		biti := i << 2
 		if ei == i {
 			lrus = lrus&^(0b1111<<biti) | 7<<biti
