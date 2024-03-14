@@ -64,15 +64,13 @@ func (c *IntCache) Set(key uint32, value uint32) {
 	// find the min lru
 	lrus := atomic.LoadUint32(&c.lruBuckets[bucketi])
 	var (
-		minLru uint32
-		mini   int
+		mini int
 	)
-
 	for i := 0; i < soltNum; i++ {
 		lru := lrus | 0b1111<<uint32(i)
-		if lru < minLru {
-			minLru = lru
+		if lru == 0 {
 			mini = i
+			break
 		}
 	}
 
